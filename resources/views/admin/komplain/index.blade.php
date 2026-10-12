@@ -1,0 +1,544 @@
+@extends('layouts.app')
+
+@section('title', 'Manajemen Komplain')
+
+@section('content')
+<div x-data="{ 
+    activeTab: new URLSearchParams(window.location.search).get('tab') || 'Not Yet',
+    openFilter: false,
+    openAdd: {{ $errors->any() ? 'true' : 'false' }}, 
+    openEdit: false, 
+    openDelete: false, 
+    editData: {}, 
+    deleteUrl: '',
+    selectedIds: [],
+    allIdsNotYet: {{ $komplains->where('status', 'Not Yet')->pluck('id')->toJson() }},
+    get isAllSelected() {
+        return this.selectedIds.length === this.allIdsNotYet.length && this.allIdsNotYet.length > 0;
+    },
+    toggleAll() {
+        if (this.isAllSelected) {
+            this.selectedIds = [];
+        } else {
+            this.selectedIds = [...this.allIdsNotYet];
+        }
+    }
+}">
+<div class="flex flex-col md:flex-row md:justify-between items-start md:items-center mb-6 px-1 gap-4">
+    {{-- JUDUL DI KIRI --}}
+    <div>
+        <h3 class="text-2xl font-bold text-gray-900 tracking-tight">Daftar Komplain</h3>
+        <p class="text-sm text-gray-500 font-medium mt-1">Pantau progress penanganan keluhan pelanggan</p>
+    </div>
+    
+    {{-- GRUP TOMBOL DI KANAN --}}
+    <div class="flex flex-wrap items-center gap-3">
+        {{-- BULK ACTION BAR (TAMPIL KALAU ADA YANG DICENTANG) --}}
+        <div x-show="selectedIds.length > 0 && activeTab === 'Not Yet'" x-cloak class="flex items-center gap-2 bg-gray-900 p-1.5 rounded-lg shadow-lg" x-transition>
+            <span class="text-xs text-white font-bold px-2" x-text="selectedIds.length + ' dipilih'"></span>
+            <form action="{{ route('komplain.bulkDone') }}" method="POST" class="m-0">
+                @csrf
+                <template x-for="id in selectedIds" :key="id">
+                    <input type="hidden" name="ids[]" :value="id">
+                </template>
+                <button type="submit" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-md transition-colors flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                    Tandai Selesai
+                </button>
+            </form>
+        </div>
+
+        {{-- TOMBOL CATAT MANUAL --}}
+        <button @click="openAdd = true" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-all shadow-sm flex items-center gap-2 shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+            Catat Manual
+        </button>
+    </div>
+</div>
+    {{-- FLOATING TOAST SUCCESS (SMOOTH ANIMATION) --}}
+    @if(session('success'))
+        <div x-data="{
+                show: false,
+                progress: 100,
+                interval: null,
+                startTimer() {
+                    this.interval = setInterval(() => {
+                        this.progress -= 0.5;
+                        if (this.progress <= 0) {
+                            clearInterval(this.interval);
+                            this.show = false;
+                        }
+                    }, 20);
+                },
+                pauseTimer() {
+                    clearInterval(this.interval);
+                },
+                init() {
+                    setTimeout(() => {
+                        this.show = true;
+                        this.startTimer();
+                    }, 150);
+                }
+             }" 
+             x-show="show" 
+             @mouseenter="pauseTimer()"
+             @mouseleave="startTimer()"
+             x-transition:enter="transition-all transform ease-out duration-500"
+             x-transition:enter-start="opacity-0 translate-x-12 scale-90"
+             x-transition:enter-end="opacity-100 translate-x-0 scale-100"
+             x-transition:leave="transition-all transform ease-in duration-300"
+             x-transition:leave-start="opacity-100 translate-x-0 scale-100"
+             x-transition:leave-end="opacity-0 translate-x-12 scale-90"
+             x-cloak
+             class="fixed top-28 right-6 z-[100] max-w-sm w-auto min-w-[280px] bg-white border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.08)] shadow-emerald-500/10 rounded-xl overflow-hidden flex flex-col cursor-default">
+            
+            <div class="px-4 py-3 flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex flex-shrink-0 items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <div class="flex-1">
+                    <p class="text-sm font-bold text-gray-800 tracking-tight">{{ session('success') }}</p>
+                </div>
+                <button @click="show = false" class="flex-shrink-0 text-gray-400 hover:text-red-500 p-1 rounded-md transition-colors ml-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="w-full h-1 bg-gray-50">
+                <div class="h-full bg-emerald-500 transition-all duration-75 ease-linear" :style="`width: ${progress}%`"></div>
+            </div>
+        </div>
+    @endif
+
+    {{-- FLOATING TOAST ERROR (SMOOTH ANIMATION + LIST) --}}
+    @if(session('error') || $errors->any())
+        <div x-data="{
+                show: false,
+                progress: 100,
+                interval: null,
+                startTimer() {
+                    this.interval = setInterval(() => {
+                        this.progress -= 0.5;
+                        if (this.progress <= 0) {
+                            clearInterval(this.interval);
+                            this.show = false;
+                        }
+                    }, 25);
+                },
+                pauseTimer() {
+                    clearInterval(this.interval);
+                },
+                init() {
+                    setTimeout(() => {
+                        this.show = true;
+                        this.startTimer();
+                    }, 150);
+                }
+             }" 
+             x-show="show" 
+             @mouseenter="pauseTimer()"
+             @mouseleave="startTimer()"
+             x-transition:enter="transition-all transform ease-out duration-500"
+             x-transition:enter-start="opacity-0 translate-x-12 scale-90"
+             x-transition:enter-end="opacity-100 translate-x-0 scale-100"
+             x-transition:leave="transition-all transform ease-in duration-300"
+             x-transition:leave-start="opacity-100 translate-x-0 scale-100"
+             x-transition:leave-end="opacity-0 translate-x-12 scale-90"
+             x-cloak
+             class="fixed top-28 right-6 z-[100] max-w-sm w-auto min-w-[280px] bg-white border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.08)] shadow-red-500/10 rounded-xl overflow-hidden flex flex-col cursor-default">
+            
+            <div class="px-4 py-3 flex items-start gap-3">
+                <div class="w-8 h-8 rounded-full bg-red-100 text-red-600 flex flex-shrink-0 items-center justify-center mt-0.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <div class="flex-1">
+                    @if(session('error'))
+                        <p class="text-sm font-bold text-gray-800 tracking-tight">{{ session('error') }}</p>
+                    @else
+                        <p class="text-sm font-bold text-gray-800 tracking-tight mb-1">Gagal Menyimpan Data:</p>
+                        <ul class="list-disc list-inside text-[11px] font-medium text-gray-500">
+                            @foreach ($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+                <button @click="show = false" class="flex-shrink-0 text-gray-400 hover:text-red-500 p-1 rounded-md transition-colors ml-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="w-full h-1 bg-gray-50">
+                <div class="h-full bg-red-500 transition-all duration-75 ease-linear" :style="`width: ${progress}%`"></div>
+            </div>
+        </div>
+    @endif
+
+    {{-- BARIS PENCARIAN & FILTER --}}
+    <div class="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 mb-6 flex flex-col md:flex-row md:items-center justify-between overflow-visible transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+        
+        <form action="{{ route('komplain.index') }}" method="GET" class="flex-1 flex items-center m-0 border-b md:border-b-0 border-gray-50 group" id="searchForm">
+            <input type="hidden" name="tab" x-bind:value="activeTab">
+            <input type="hidden" name="kategori" value="{{ request('kategori') }}">
+            <input type="hidden" name="start_date" value="{{ request('start_date') }}">
+            <input type="hidden" name="end_date" value="{{ request('end_date') }}">
+            
+            <div class="pl-5 pr-2 text-gray-400 group-focus-within:text-blue-500 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            </div>
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari nama pelanggan atau isi keluhan..." 
+                   class="w-full py-4 bg-transparent border-none focus:ring-0 outline-none text-sm font-medium text-gray-700 placeholder-gray-400" 
+                   onkeydown="if(event.key === 'Enter') this.form.submit();">
+        </form>
+
+        <div class="flex items-center justify-end gap-2 p-2 px-3 shrink-0 bg-gray-50/30 md:bg-transparent">
+            
+            <a href="{{ route('komplain.index') }}" class="text-[11px] font-black text-gray-400 hover:text-red-500 px-3 py-2 transition-colors tracking-widest uppercase">Reset</a>
+            
+            <button @click="window.location.href = '{{ route('komplain.index') }}?export=1&tab=' + activeTab" class="text-[11px] font-black text-gray-400 hover:text-blue-600 px-3 py-2 transition-colors tracking-widest uppercase border-r border-gray-200 pr-4 mr-2">Export</button>
+            
+            <div class="relative">
+                <button @click="openFilter = !openFilter" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-500/20 relative z-10">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path></svg>
+                    Filter
+                </button>
+
+                <div x-show="openFilter" 
+                     @click.away="openFilter = false"
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 translate-y-2 scale-95"
+                     x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                     x-transition:leave="transition ease-in duration-150"
+                     x-transition:leave-start="opacity-100 translate-y-0 scale-100"
+                     x-transition:leave-end="opacity-0 translate-y-2 scale-95"
+                     x-cloak 
+                     class="absolute right-0 top-full mt-3 w-80 bg-white rounded-2xl shadow-[0_10px_40px_rgb(0,0,0,0.1)] border border-gray-100 p-5 z-[100]">
+                    
+                    <h4 class="text-sm font-black text-gray-900 tracking-tight mb-4">Filter Komplain</h4>
+                    
+                    <form action="{{ route('komplain.index') }}" method="GET">
+                        <input type="hidden" name="q" value="{{ request('q') }}">
+                        <input type="hidden" name="tab" x-bind:value="activeTab">
+                        
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Kategori Masalah</label>
+                                <select name="kategori" class="w-full p-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer">
+                                    <option value="">Semua Kategori</option>
+                                    @foreach($kategoriList as $kat)
+                                        <option value="{{ $kat }}" {{ request('kategori') == $kat ? 'selected' : '' }}>{{ $kat }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Dari Tanggal</label>
+                                <input type="date" name="start_date" value="{{ request('start_date') }}" class="w-full p-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Sampai Tanggal</label>
+                                <input type="date" name="end_date" value="{{ request('end_date') }}" class="w-full p-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer">
+                            </div>
+                        </div>
+
+                        <div class="mt-6">
+                            <button type="submit" class="w-full py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-500/20">Terapkan Filter</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- NAVIGATION TABS --}}
+    <div class="flex gap-2 border-b border-gray-200 mb-6 overflow-x-auto no-scrollbar">
+        <button @click="activeTab = 'Not Yet'" 
+                class="px-6 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap flex items-center gap-2"
+                :class="activeTab === 'Not Yet' ? 'border-red-500 text-red-600 bg-red-50/50 rounded-t-lg' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-t-lg'">
+            <span class="w-2 h-2 rounded-full" :class="activeTab === 'Not Yet' ? 'bg-red-500 animate-pulse' : 'bg-gray-300'"></span>
+            Belum Ditangani
+            <span class="ml-1 bg-red-100 text-red-600 py-0.5 px-2 rounded-full text-xs">{{ $komplains->where('status', 'Not Yet')->count() }}</span>
+        </button>
+        
+        {{-- <button @click="activeTab = 'In Progress'" 
+                class="px-6 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap flex items-center gap-2"
+                :class="activeTab === 'In Progress' ? 'border-blue-500 text-blue-600 bg-blue-50/50 rounded-t-lg' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-t-lg'">
+            <span class="w-2 h-2 rounded-full" :class="activeTab === 'In Progress' ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'"></span>
+            Sedang Diproses
+            <span class="ml-1 bg-blue-100 text-blue-600 py-0.5 px-2 rounded-full text-xs">{{ $komplains->where('status', 'In Progress')->count() }}</span>
+        </button> --}}
+
+        <button @click="activeTab = 'Done'" 
+                class="px-6 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap flex items-center gap-2"
+                :class="activeTab === 'Done' ? 'border-green-500 text-green-600 bg-green-50/50 rounded-t-lg' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-t-lg'">
+            <span class="w-2 h-2 rounded-full" :class="activeTab === 'Done' ? 'bg-green-500' : 'bg-gray-300'"></span>
+            Selesai
+            <span class="ml-1 bg-green-100 text-green-600 py-0.5 px-2 rounded-full text-xs">{{ $komplains->where('status', 'Done')->count() }}</span>
+        </button>
+    </div>
+
+    {{-- TAB CONTENT (TABLE REVISED) --}}
+    @foreach(['Not Yet', 'In Progress', 'Done'] as $statusKey)
+    <div x-show="activeTab === '{{ $statusKey }}'" x-cloak class="relative overflow-x-auto bg-white shadow-sm rounded-2xl border border-gray-100">
+        <table class="w-full text-left text-gray-600 border-collapse">
+            
+            {{-- THEAD KONSISTEN --}}
+            <thead class="text-[11px] text-gray-400 bg-gray-50/50 border-b border-gray-100 uppercase tracking-widest font-black">
+                <tr>
+                    <th class="px-6 py-4 w-10 text-center">
+                        <input type="checkbox" x-show="activeTab === 'Not Yet'" @click="toggleAll" :checked="isAllSelected" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer">
+                    </th>
+                    <th class="px-6 py-4 w-48">Pelapor</th>
+                    <th class="px-6 py-4 w-32 whitespace-nowrap">Tanggal</th>
+                    <th class="px-6 py-4 w-40">Kategori</th>
+                    <th class="px-6 py-4">Detail Keluhan</th>
+                    <th class="px-6 py-4 text-center">Prioritas</th>
+                    <th class="px-6 py-4 text-center">Status</th>
+                    <th class="px-6 py-4 text-right">Aksi</th>
+                </tr>
+            </thead>
+            
+            {{-- TBODY KONSISTEN (HURUF & UKURAN) --}}
+            <tbody class="divide-y divide-gray-50">
+                @forelse($komplains->where('status', $statusKey) as $kp)
+                <tr class="hover:bg-blue-50/30 transition-colors group">
+                    <td class="px-6 py-4 text-center">
+                        <input type="checkbox" x-show="activeTab === 'Not Yet'" x-model="selectedIds" value="{{ $kp->id }}" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer">
+                    </td>
+                    {{-- PELAPOR --}}
+                    <td class="px-6 py-4">
+                        <div class="flex flex-col">
+                            <span class="text-sm font-bold text-gray-900">{{ $kp->pelanggan->nama_pelanggan ?? 'Data Dihapus' }}</span>
+                            <span class="text-[11px] text-gray-500 font-medium mt-0.5">{{ $kp->pelanggan->no_wa ?? '-' }}</span>
+                        </div>
+                    </td>
+                    
+                    {{-- TANGGAL --}}
+                    <td class="px-6 py-4 text-sm font-bold text-gray-600 whitespace-nowrap">
+                        {{ \Carbon\Carbon::parse($kp->tanggal)->format('d/m/Y') }}
+                    </td>
+                    
+                    {{-- KATEGORI (CHIP DENGAN HURUF NORMAL/TITLE CASE, BUKAN UPPERCASE) --}}
+                    <td class="px-6 py-4">
+                        @if($kp->kategori)
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 whitespace-nowrap">
+                                {{ $kp->kategori }}
+                            </span>
+                        @else
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-gray-50 text-gray-500 border border-gray-200 whitespace-nowrap">
+                                Belum Diatur
+                            </span>
+                        @endif
+                    </td>
+                    
+                    {{-- DETAIL KELUHAN --}}
+                    <td class="px-6 py-4">
+                        <p class="text-sm text-gray-600 font-medium whitespace-pre-wrap leading-relaxed">{{ $kp->keluhan }}</p>
+                    </td>
+                    
+                    {{-- PRIORITAS (CHIP UPPERCASE KARENA SINGKAT) --}}
+                    <td class="px-6 py-4 text-center">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border whitespace-nowrap
+                            {{ $kp->priority == 'High' ? 'bg-red-50 text-red-600 border-red-100' : ($kp->priority == 'Medium' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-gray-50 text-gray-600 border-gray-200') }}">
+                            {{ $kp->priority }}
+                        </span>
+                    </td>
+                    
+                    {{-- STATUS (CHIP UPPERCASE KARENA SINGKAT) --}}
+                    <td class="px-6 py-4 text-center">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border whitespace-nowrap
+                            {{ $kp->status == 'Done' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : ($kp->status == 'In Progress' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-gray-50 text-gray-500 border-gray-200') }}">
+                            {{ $kp->status }}
+                        </span>
+                    </td>
+                    
+                    {{-- AKSI --}}
+                    <td class="px-6 py-4 text-right">
+                        <div class="flex justify-end gap-2">
+                            {{-- TOMBOL EMAIL KHUSUS STATUS DONE --}}
+                            @if($kp->status == 'Done' && $kp->pelanggan && $kp->pelanggan->email)
+                                <form action="{{ route('komplain.notifyDone', $kp->id) }}" method="POST" class="inline m-0 p-0">
+                                    @csrf
+                                    <button type="submit" class="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Kirim Email Selesai (Manual)">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                                    </button>
+                                </form>
+                            @endif
+
+                            {{-- TOMBOL MARK AS DONE SATUAN --}}
+                            @if($kp->status == 'Not Yet')
+                                <form action="{{ route('komplain.markDone', $kp->id) }}" method="POST" class="inline m-0 p-0">
+                                    @csrf @method('PUT')
+                                    <button type="submit" class="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Tandai Selesai & Kirim Email">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                                    </button>
+                                </form>
+                            @endif
+
+                            <button @click="openEdit = true; editData = {{ json_encode($kp) }}" class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Update Progress">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </button>
+                            
+                            <button @click="openDelete = true; deleteUrl = '{{ route('komplain.destroy', $kp->id) }}'" class="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all" title="Hapus Data">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                @empty
+                <tr>
+                    <td colspan="7" class="px-6 py-12 text-center">
+                        <div class="flex flex-col items-center justify-center text-gray-400">
+                            <div class="w-12 h-12 bg-gray-50/50 text-gray-300 rounded-full flex items-center justify-center mb-3">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <span class="text-sm font-bold text-gray-500">Tidak ada komplain dengan status ini.</span>
+                        </div>
+                    </td>
+                </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+    @endforeach
+
+    {{-- MODAL TAMBAH KOMPLAIN --}}
+    <div x-show="openAdd" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-all">
+        <div class="bg-white w-full max-w-xl rounded-xl shadow-2xl p-8" @click.away="openAdd = false">
+            <h4 class="text-xl font-bold text-gray-900 mb-6">Catat Komplain Manual</h4>
+            
+            <form action="{{ route('komplain.storeAdmin') }}" method="POST" x-data="{ isSubmitting: false }" @submit="isSubmitting = true"> 
+                @csrf
+                
+                <div class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Pilih Pelanggan</label>
+                            <select name="pelanggan_id" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700" required>
+                                <option value="">-- Pilih Pelanggan --</option>
+                                @foreach($pelanggans as $plg)
+                                    <option value="{{ $plg->id }}">{{ $plg->nama_pelanggan }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Kategori Masalah</label>
+                            <select name="kategori" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700" required>
+                                <option value="">-- Pilih Kategori --</option>
+                                @foreach($kategoriList as $kategori)
+                                    <option value="{{ $kategori }}">{{ $kategori }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Prioritas Penanganan</label>
+                            <select name="priority" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700" required>
+                                <option value="Low">Low (Rendah)</option>
+                                <option value="Medium" selected>Medium (Sedang)</option>
+                                <option value="High">High (Mendesak!)</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Status Progres</label>
+                            <select name="status" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700" required>
+                                <option value="Not Yet" selected>Not Yet (Belum)</option>
+                                <option value="Done">Done (Selesai)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Detail Keluhan</label>
+                        <textarea name="keluhan" rows="4" placeholder="Jelaskan detail kendala..." class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-medium" required></textarea>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 pt-6 mt-6 border-t border-slate-100">
+                    <button type="button" @click="openAdd = false" class="flex-1 text-sm font-bold text-gray-500 p-3 hover:bg-gray-100 rounded-lg transition-all">Batal</button>
+                    <button type="submit" x-bind:disabled="isSubmitting" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg p-3 shadow-lg shadow-blue-100 transition-all flex justify-center items-center disabled:opacity-70 disabled:cursor-not-allowed">
+                        <span x-show="!isSubmitting">Simpan Komplain</span>
+                        <span x-show="isSubmitting" x-cloak class="flex items-center gap-2">
+                            <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        </span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- MODAL EDIT KOMPLAIN --}}
+    <div x-show="openEdit" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 transition-all">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-2xl p-8" @click.away="openEdit = false">
+            <h4 class="text-xl font-bold text-gray-900 mb-6">Tindak Lanjut Komplain</h4>
+            
+            <form :action="'/komplain/' + editData.id" method="POST" x-data="{ isSubmitting: false }" @submit="isSubmitting = true"> 
+                @csrf @method('PUT')
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Kategori Masalah</label>
+                        <select name="kategori" x-model="editData.kategori" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700">
+                            <option value="">-- Belum Dikategorikan --</option>
+                            @foreach($kategoriList as $kategori)
+                                <option value="{{ $kategori }}">{{ $kategori }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Prioritas Penanganan</label>
+                        <select name="priority" x-model="editData.priority" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700" required>
+                            <option value="Low">Low (Rendah)</option>
+                            <option value="Medium">Medium (Sedang)</option>
+                            <option value="High">High (Mendesak!)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Status Progres</label>
+                        <select name="status" x-model="editData.status" class="w-full text-sm p-3 bg-gray-50 border border-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700" required>
+                            <option value="Not Yet">Not Yet (Belum Ditangani)</option>
+                            <option value="Done">Done (Selesai/Tuntas)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex gap-3 pt-6 mt-6 border-t border-slate-100">
+                    <button type="button" @click="openEdit = false" class="flex-1 text-sm font-bold text-gray-500 p-3 hover:bg-gray-100 rounded-lg transition-all">Batal</button>
+                    <button type="submit" x-bind:disabled="isSubmitting" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg p-3 shadow-lg shadow-blue-100 transition-all flex justify-center items-center disabled:opacity-70 disabled:cursor-not-allowed">
+                        <span x-show="!isSubmitting">Simpan Update</span>
+                        <span x-show="isSubmitting" x-cloak class="flex items-center gap-2">
+                            <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        </span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {{-- MODAL DELETE --}}
+    <div x-show="openDelete" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 transition-all">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-8 text-center" @click.away="openDelete = false">
+            <div class="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-5">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <h4 class="text-xl font-bold text-gray-900 mb-2">Hapus Komplain?</h4>
+            <p class="text-sm text-gray-500 leading-relaxed mb-8 px-4">Tindakan ini akan menghapus riwayat laporan ini secara permanen.</p>
+            <form :action="deleteUrl" method="POST" x-data="{ isSubmitting: false }" @submit="isSubmitting = true">
+                @csrf @method('DELETE')
+                <div class="flex gap-3">
+                    <button type="button" @click="openDelete = false" class="flex-1 text-sm font-bold text-gray-600 p-3 hover:bg-gray-100 rounded-xl transition-all">Batalkan</button>
+                    <button type="submit" x-bind:disabled="isSubmitting" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl p-3 shadow-lg shadow-red-100 transition-all flex justify-center items-center disabled:opacity-70 disabled:cursor-not-allowed">
+                        <span x-show="!isSubmitting">Ya, Hapus</span>
+                        <span x-show="isSubmitting" x-cloak class="flex items-center gap-2">
+                            <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        </span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+@endsection
